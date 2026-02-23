@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smile Detector 😄</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d0f;
+      --surface:  #16181d;
+      --border:   #2a2d35;
+      --text:     #e8eaf0;
+      --muted:    #7a7f8e;
+
+      --ring-none:  #3a3d47;
+      --ring-warn:  #f59e0b;
+      --ring-bad:   #ef4444;
+      --ring-mid:   #eab308;
+      --ring-good:  #22c55e;
+
+      --accent:   #6366f1;
+
+      --transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      padding: 2rem 1rem 3rem;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: clamp(1.6rem, 4vw, 2.4rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      color: var(--muted);
+      margin-top: 0.4rem;
+      font-size: 0.95rem;
+    }
+
+    /* ── Camera ring container ─────────────────────────────────────── */
+    .camera-wrapper {
+      position: relative;
+      width: min(420px, 90vw);
+      aspect-ratio: 4/3;
+    }
+
+    /* Animated ring */
+    .ring {
+      position: absolute;
+      inset: -8px;
+      border-radius: 24px;
+      transition: box-shadow var(--transition), border-color var(--transition);
+      border: 3px solid var(--ring-none);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .ring.state-no-face  { border-color: var(--ring-warn); box-shadow: 0 0 0 0 transparent; }
+    .ring.state-no-smile { border-color: var(--ring-bad);  animation: pulse-ring 1.2s infinite; --pulse-color: var(--ring-bad); }
+    .ring.state-small    { border-color: var(--ring-mid);  animation: pulse-ring 1s infinite;   --pulse-color: var(--ring-mid); }
+    .ring.state-full     { border-color: var(--ring-good); animation: glow-ring 1.5s infinite;  box-shadow: 0 0 30px 6px rgba(34,197,94,0.35); }
+    .ring.state-idle     { border-color: var(--ring-none); animation: none; }
+
+    @keyframes pulse-ring {
+      0%,100% { box-shadow: 0 0 0 0px var(--pulse-color); }
+      50%      { box-shadow: 0 0 0 10px transparent; }
+    }
+    @keyframes glow-ring {
+      0%,100% { box-shadow: 0 0 24px 4px rgba(34,197,94,0.3); }
+      50%      { box-shadow: 0 0 44px 12px rgba(34,197,94,0.5); }
+    }
+
+    /* Video */
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 16px;
+      background: #111;
+      display: block;
+      transform: scaleX(-1); /* mirror */
+    }
+
+    canvas#capture { display: none; }
+
+    /* Status badge */
+    .status-badge {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      white-space: nowrap;
+      z-index: 3;
+      transition: opacity 0.3s;
+    }
+
+    /* ── Message area ─────────────────────────────────────────────── */
+    .message-area {
+      margin-top: 1.5rem;
+      width: min(420px, 90vw);
+      text-align: center;
+      min-height: 3.5rem;
+    }
+
+    .message-text {
+      font-size: clamp(1rem, 2.5vw, 1.25rem);
+      font-weight: 600;
+      transition: all 0.4s ease;
+      line-height: 1.4;
+    }
+
+    /* ── Smile meter ──────────────────────────────────────────────── */
+    .meter-wrap {
+      margin-top: 1.2rem;
+      width: min(420px, 90vw);
+      opacity: 1;
+      transition: opacity 0.4s;
+    }
+
+    .meter-wrap.hidden { opacity: 0; pointer-events: none; }
+
+    .meter-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .meter-track {
+      height: 10px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: visible;
+      position: relative;
+    }
+
+    .meter-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.2s ease, background-color var(--transition);
+      position: relative;
+    }
+
+    /* Threshold marker */
+    .meter-threshold {
+      position: absolute;
+      top: -4px;
+      width: 2px;
+      height: 18px;
+      background: rgba(255,255,255,0.4);
+      border-radius: 1px;
+      left: 55%;  /* 0.55 threshold */
+    }
+
+    /* ── Celebration ──────────────────────────────────────────────── */
+    .celebration {
+      display: none;
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 50;
+      overflow: hidden;
+    }
+    .celebration.active { display: block; }
+
+    .confetti-piece {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      top: -20px;
+      border-radius: 2px;
+      animation: fall linear forwards;
+    }
+
+    @keyframes fall {
+      to { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+    }
+
+    /* ── Form panel ───────────────────────────────────────────────── */
+    .form-panel {
+      margin-top: 1.8rem;
+      width: min(420px, 90vw);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.6rem;
+      opacity: 0;
+      transform: translateY(16px);
+      pointer-events: none;
+      transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .form-panel.visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .form-panel h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 0.3rem;
+    }
+
+    .form-panel p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 1.2rem;
+    }
+
+    .form-panel label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+      font-weight: 500;
+    }
+
+    .form-panel input {
+      width: 100%;
+      padding: 0.65rem 0.9rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 0.9rem;
+    }
+
+    .form-panel input:focus {
+      border-color: var(--accent);
+    }
+
+    .form-panel input::placeholder { color: var(--muted); }
+
+    .btn-submit {
+      width: 100%;
+      padding: 0.75rem;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s;
+    }
+
+    .btn-submit:hover  { opacity: 0.9; }
+    .btn-submit:active { transform: scale(0.98); }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Thank-you flash ──────────────────────────────────────────── */
+    .thankyou {
+      display: none;
+      text-align: center;
+      padding: 0.6rem 0;
+    }
+    .thankyou.show { display: block; }
+    .thankyou p { font-size: 1.05rem; font-weight: 600; color: var(--ring-good); }
+    .thankyou small { color: var(--muted); font-size: 0.8rem; }
+
+    /* ── WS status dot ────────────────────────────────────────────── */
+    .ws-dot {
+      position: fixed;
+      top: 14px;
+      right: 16px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #555;
+      transition: background 0.3s;
+    }
+    .ws-dot.connected    { background: var(--ring-good); }
+    .ws-dot.reconnecting { background: var(--ring-warn); animation: blink 0.8s infinite; }
+    @keyframes blink { 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+
+  <!-- WS status dot -->
+  <div class="ws-dot" id="wsDot" title="WebSocket connection"></div>
+
+  <!-- Confetti container -->
+  <div class="celebration" id="celebration"></div>
+
+  <header>
+    <h1>😄 Smile Detector</h1>
+    <p>Show us your best smile and claim a gift!</p>
+  </header>
+
+  <!-- Camera -->
+  <div class="camera-wrapper">
+    <div class="ring state-idle" id="ring"></div>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="capture"></canvas>
+    <div class="status-badge" id="statusBadge">Initializing camera…</div>
+  </div>
+
+  <!-- Message -->
+  <div class="message-area">
+    <div class="message-text" id="messageText">Loading…</div>
+  </div>
+
+  <!-- Smile meter -->
+  <div class="meter-wrap hidden" id="meterWrap">
+    <div class="meter-label">
+      <span>Smile-o-meter</span>
+      <span id="meterPct">0%</span>
+    </div>
+    <div class="meter-track">
+      <div class="meter-fill" id="meterFill" style="width:0%;background:#ef4444"></div>
+      <div class="meter-threshold" title="Full smile threshold (55%)"></div>
+    </div>
+  </div>
+
+  <!-- Email form -->
+  <div class="form-panel" id="formPanel">
+    <h2>🎁 Claim Your Gift!</h2>
+    <p>You crushed it! Drop your details below and we'll send you a little surprise.</p>
+
+    <div id="formFields">
+      <label for="inputName">Your Name</label>
+      <input type="text" id="inputName" placeholder="Jane Doe" autocomplete="name" />
+
+      <label for="inputEmail">Email Address</label>
+      <input type="email" id="inputEmail" placeholder="jane@example.com" autocomplete="email" />
+
+      <button class="btn-submit" id="btnSubmit">Claim My Gift 🎁</button>
+    </div>
+
+    <div class="thankyou" id="thankYou">
+      <p id="thankYouMsg">🎉 Gift is on its way!</p>
+      <small>Keep smiling — you can enter again if you'd like!</small>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    // ── Config ────────────────────────────────────────────────────
+    const WS_URL        = `ws://${location.host}/ws`;
+    const CAPTURE_MS    = 200;     // frame send interval
+    const FULL_HOLD_MS  = 1000;    // must hold full smile for 1s before form shows
+    const RECONNECT_MS  = 2000;
+
+    // ── State ─────────────────────────────────────────────────────
+    let ws             = null;
+    let captureTimer   = null;
+    let fullSmileStart = null;   // timestamp when FULL_SMILE started
+    let formShown      = false;
+
+    // ── DOM refs ──────────────────────────────────────────────────
+    const video      = document.getElementById('video');
+    const canvas     = document.getElementById('capture');
+    const ctx        = canvas.getContext('2d');
+    const ring       = document.getElementById('ring');
+    const badge      = document.getElementById('statusBadge');
+    const msgText    = document.getElementById('messageText');
+    const meterWrap  = document.getElementById('meterWrap');
+    const meterFill  = document.getElementById('meterFill');
+    const meterPct   = document.getElementById('meterPct');
+    const formPanel  = document.getElementById('formPanel');
+    const formFields = document.getElementById('formFields');
+    const thankYou   = document.getElementById('thankYou');
+    const btnSubmit  = document.getElementById('btnSubmit');
+    const inputName  = document.getElementById('inputName');
+    const inputEmail = document.getElementById('inputEmail');
+    const wsDot      = document.getElementById('wsDot');
+    const celebration= document.getElementById('celebration');
+
+    // ── Camera ────────────────────────────────────────────────────
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: 'user' }
+        });
+        video.srcObject = stream;
+        await video.play();
+        badge.textContent = 'Camera ready ✓';
+        startCapture();
+      } catch (e) {
+        badge.textContent = '⚠️ Camera access denied';
+        msgText.textContent = 'Please allow camera access and refresh.';
+      }
+    }
+
+    // ── Frame capture & send ──────────────────────────────────────
+    function startCapture() {
+      if (captureTimer) clearInterval(captureTimer);
+      captureTimer = setInterval(sendFrame, CAPTURE_MS);
+    }
+
+    function sendFrame() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (video.readyState < 2) return;
+
+      canvas.width  = 320;
+      canvas.height = 240;
+      ctx.save();
+      ctx.scale(-1, 1);  // mirror to match video display
+      ctx.drawImage(video, -320, 0, 320, 240);
+      ctx.restore();
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      ws.send(dataUrl);
+    }
+
+    // ── WebSocket ─────────────────────────────────────────────────
+    function connectWS() {
+      wsDot.className = 'ws-dot reconnecting';
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        wsDot.className = 'ws-dot connected';
+        badge.textContent = 'Connected ✓';
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data);
+          handleDetection(data);
+        } catch (_) {}
+      };
+
+      ws.onclose = () => {
+        wsDot.className = 'ws-dot reconnecting';
+        badge.textContent = 'Reconnecting…';
+        fullSmileStart = null;
+        setTimeout(connectWS, RECONNECT_MS);
+      };
+
+      ws.onerror = () => ws.close();
+    }
+
+    // ── Detection handler ─────────────────────────────────────────
+    const RING_CLASSES = {
+      NO_FACE:    'state-no-face',
+      NO_SMILE:   'state-no-smile',
+      SMALL_SMILE:'state-small',
+      FULL_SMILE: 'state-full',
+    };
+
+    const METER_COLORS = {
+      NO_FACE:    '#3a3d47',
+      NO_SMILE:   '#ef4444',
+      SMALL_SMILE:'#eab308',
+      FULL_SMILE: '#22c55e',
+    };
+
+    function handleDetection({ status, smile_score, message }) {
+      // Ring
+      ring.className = 'ring ' + (RING_CLASSES[status] || 'state-idle');
+
+      // Message
+      msgText.textContent = message;
+
+      // Badge
+      badge.textContent = status.replace('_', ' ');
+
+      // Meter
+      const showMeter = status !== 'NO_FACE';
+      meterWrap.classList.toggle('hidden', !showMeter);
+      if (showMeter) {
+        const pct = Math.round(smile_score * 100);
+        meterFill.style.width = pct + '%';
+        meterFill.style.backgroundColor = METER_COLORS[status] || '#555';
+        meterPct.textContent = pct + '%';
+      }
+
+      // Full-smile hysteresis
+      if (status === 'FULL_SMILE') {
+        if (!fullSmileStart) fullSmileStart = Date.now();
+        if (!formShown && Date.now() - fullSmileStart >= FULL_HOLD_MS) {
+          showForm();
+        }
+      } else {
+        fullSmileStart = null;
+        // Don't hide form once shown — let them fill it out
+      }
+    }
+
+    // ── Form ──────────────────────────────────────────────────────
+    function showForm() {
+      formShown = true;
+      formPanel.classList.add('visible');
+      launchConfetti();
+    }
+
+    function resetForm() {
+      inputName.value  = '';
+      inputEmail.value = '';
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = 'Claim My Gift 🎁';
+      formFields.style.display = 'block';
+      thankYou.classList.remove('show');
+      // Allow submitting again in next full-smile window
+      formShown = false;
+    }
+
+    btnSubmit.addEventListener('click', async () => {
+      const name  = inputName.value.trim();
+      const email = inputEmail.value.trim();
+      if (!name || !email) {
+        inputName.style.borderColor  = name  ? '' : '#ef4444';
+        inputEmail.style.borderColor = email ? '' : '#ef4444';
+        return;
+      }
+      inputName.style.borderColor  = '';
+      inputEmail.style.borderColor = '';
+
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Sending…';
+
+      try {
+        const resp = await fetch('/submit-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email }),
+        });
+        const json = await resp.json();
+        if (json.success) {
+          formFields.style.display = 'none';
+          document.getElementById('thankYouMsg').textContent =
+            `🎉 Gift is on its way, ${name}!`;
+          thankYou.classList.add('show');
+          // Reset after 5 seconds so they can submit again
+          setTimeout(resetForm, 5000);
+        } else {
+          btnSubmit.disabled = false;
+          btnSubmit.textContent = 'Try again ↩';
+        }
+      } catch {
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Try again ↩';
+      }
+    });
+
+    // ── Confetti ──────────────────────────────────────────────────
+    const CONFETTI_COLORS = [
+      '#6366f1','#8b5cf6','#22c55e','#f59e0b',
+      '#ef4444','#38bdf8','#f472b6','#a3e635',
+    ];
+
+    function launchConfetti() {
+      celebration.classList.add('active');
+      celebration.innerHTML = '';
+
+      for (let i = 0; i < 80; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        const color  = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+        const left   = Math.random() * 100;
+        const delay  = Math.random() * 1.5;
+        const dur    = 2 + Math.random() * 2;
+        const size   = 6 + Math.random() * 8;
+        piece.style.cssText = `
+          left:${left}%;
+          background:${color};
+          width:${size}px;
+          height:${size}px;
+          animation-duration:${dur}s;
+          animation-delay:${delay}s;
+          border-radius:${Math.random() > 0.5 ? '50%' : '2px'};
+        `;
+        celebration.appendChild(piece);
+      }
+
+      // Clean up after animation
+      setTimeout(() => {
+        celebration.classList.remove('active');
+        celebration.innerHTML = '';
+      }, 5000);
+    }
+
+    // ── Init ──────────────────────────────────────────────────────
+    startCamera();
+    connectWS();
+  })();
+  </script>
+</body>
+</html>
