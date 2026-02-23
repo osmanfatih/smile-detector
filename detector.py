@@ -11,8 +11,8 @@ import mediapipe as mp
 
 class SmileDetector:
     # Smile score thresholds
-    SMALL_SMILE_THRESHOLD = 0.30
-    FULL_SMILE_THRESHOLD = 0.55
+    SMALL_SMILE_THRESHOLD = 0.40
+    FULL_SMILE_THRESHOLD = 0.70
 
     # Key MediaPipe Face Mesh landmark indices
     LEFT_CORNER = 61

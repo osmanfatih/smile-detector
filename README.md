@@ -64,8 +64,8 @@ The SQLite database is stored at `smile_submissions.db` in the project root.
 Smile score thresholds are in `detector.py`:
 
 ```python
-SMALL_SMILE_THRESHOLD = 0.30   # below this = no smile
-FULL_SMILE_THRESHOLD  = 0.55   # above this = full smile (triggers form)
+SMALL_SMILE_THRESHOLD = 0.40   # below this = no smile
+FULL_SMILE_THRESHOLD  = 0.70   # above this = full smile (triggers form)
 ```
 
 The score is derived from MediaPipe Face Mesh landmark geometry:
