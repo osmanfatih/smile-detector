@@ -1,0 +1,20 @@
+[project]
+name = "smile-detector"
+version = "0.1.0"
+description = "Offline smile detector web app with FastAPI and MediaPipe."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiosqlite",
+    "fastapi",
+    "mediapipe",
+    "numpy",
+    "opencv-python-headless",
+    "pydantic",
+    "python-multipart",
+    "sqlalchemy",
+    "uvicorn[standard]",
+]
+
+[tool.uv]
+package = false
